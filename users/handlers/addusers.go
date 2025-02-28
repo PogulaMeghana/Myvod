@@ -12,21 +12,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// DummyCollection is a concrete type that implements MongoCollectionAPI.
-//type DummyCollection struct{}
-
-// CountDocuments always returns 0 (no matching document found).
-//func (dc *DummyCollection) CountDocuments(ctx context.Context, filter interface{}) (int64, error) {
-// In a real implementation, you would query the database.
-//	return 0, nil
-//}
-
-// InsertOne simulates a successful insert operation.
-//func (dc *DummyCollection) InsertOne(ctx context.Context, document interface{}) (*mongo.InsertOneResult, error) {
-// In a real implementation, you would insert into the database.
-//return &mongo.InsertOneResult{InsertedID: "dummy-id"}, nil
-//}
-
 // hashPassword hashes the provided password using bcrypt.
 func hashPassword(password string) (string, error) {
 	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -40,20 +25,20 @@ func insertUser(ctx context.Context, user User, collection dbiface.MongoCollecti
 	// We'll return the inserted user
 	var insertedUser User
 
-	// Check if a user with the same email or username already exists
-	count, err := collection.CountDocuments(ctx, bson.M{
-		"$or": []bson.M{
-			{"email": user.Email},
-			{"username": user.Username},
-		},
-	})
+	// Check if a user with the same email already exists
+	count, err := collection.CountDocuments(ctx, bson.M{"$or": []bson.M{{"email": user.Email}}})
+
 	if err != nil {
 		log.Error("Error checking existing user:", err)
-		return insertedUser, echo.NewHTTPError(http.StatusInternalServerError, "Database error while checking user existence")
+		return insertedUser, echo.NewHTTPError(http.StatusInternalServerError,
+			map[string]string{"message": "Database error while checking user existence"})
 	}
 
-	if count > 0 {
-		return insertedUser, echo.NewHTTPError(http.StatusConflict, "User with this email or username already exists")
+	//  If user already exists, return 409 Conflict
+	if count >= 1 {
+		log.Warn("User already exists: ", user.Email)
+		return insertedUser, echo.NewHTTPError(http.StatusConflict,
+			map[string]string{"message": "User already exists"})
 	}
 
 	// Hash the user's password before storing
@@ -104,5 +89,9 @@ func (h *UsersHandler) CreateUser(c echo.Context) error {
 			errorMessage{Message: "Unable to generate the token"})
 	}
 	c.Response().Header().Set("Authorization", "Bearer "+token)
-	return c.JSON(http.StatusCreated, resUser)
+	// ✅ SUCCESS RESPONSE WITH MESSAGE
+	return c.JSON(http.StatusCreated, map[string]interface{}{
+		"message": "User successfully created",
+		"user":    resUser,
+	})
 }
