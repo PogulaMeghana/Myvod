@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/gommon/log"
 	"github.com/vod/users/dbiface"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -25,20 +26,32 @@ func insertUser(ctx context.Context, user User, collection dbiface.MongoCollecti
 	// We'll return the inserted user
 	var insertedUser User
 
-	// Check if a user with the same email already exists
-	count, err := collection.CountDocuments(ctx, bson.M{"$or": []bson.M{{"email": user.Email}}})
-
+	// Check separately if the user email or organization name already exists
+	emailCount, err := collection.CountDocuments(ctx, bson.M{"user_name": user.Email})
 	if err != nil {
-		log.Error("Error checking existing user:", err)
+		log.Error("Error checking existing user email:", err)
 		return insertedUser, echo.NewHTTPError(http.StatusInternalServerError,
-			map[string]string{"message": "Database error while checking user existence"})
+			map[string]string{"message": "Database error while checking user email"})
 	}
 
-	//  If user already exists, return 409 Conflict
-	if count >= 1 {
-		log.Warn("User already exists: ", user.Email)
+	orgCount, err := collection.CountDocuments(ctx, bson.M{"organization_name": user.OrganizationName})
+	if err != nil {
+		log.Error("Error checking existing organization name:", err)
+		return insertedUser, echo.NewHTTPError(http.StatusInternalServerError,
+			map[string]string{"message": "Database error while checking organization name"})
+	}
+
+	// Return specific conflict errors
+	if emailCount > 0 {
+		log.Warn("User email already exists:", user.Email)
 		return insertedUser, echo.NewHTTPError(http.StatusConflict,
-			map[string]string{"message": "User already exists"})
+			map[string]string{"message": "User with this email already exists"})
+	}
+
+	if orgCount > 0 {
+		log.Warn("Organization already exists:", user.OrganizationName)
+		return insertedUser, echo.NewHTTPError(http.StatusConflict,
+			map[string]string{"message": "Organization name already exists"})
 	}
 
 	// Hash the user's password before storing
@@ -52,14 +65,14 @@ func insertUser(ctx context.Context, user User, collection dbiface.MongoCollecti
 	// Set user creation and update timestamps
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = time.Now()
-
+	user.IsAdmin = true
 	// Insert user into MongoDB
-	_, err = collection.InsertOne(ctx, user)
+	result, err := collection.InsertOne(ctx, user)
 	if err != nil {
 		log.Error("Error inserting user into database:", err)
 		return insertedUser, echo.NewHTTPError(http.StatusInternalServerError, "Failed to register user")
 	}
-
+	user.Id = result.InsertedID.(primitive.ObjectID)
 	// Return the inserted user (or you could return user)
 	return user, nil
 }
@@ -90,8 +103,10 @@ func (h *UsersHandler) CreateUser(c echo.Context) error {
 	}
 	c.Response().Header().Set("Authorization", "Bearer "+token)
 	// ✅ SUCCESS RESPONSE WITH MESSAGE
-	return c.JSON(http.StatusCreated, map[string]interface{}{
-		"message": "User successfully created",
-		"user":    resUser,
-	})
+	responseUser := map[string]interface{}{
+		"message": "User created successfully",
+		"user_id": resUser.Id.Hex(), // Convert ObjectID to string
+
+	}
+	return c.JSON(http.StatusCreated, responseUser)
 }
