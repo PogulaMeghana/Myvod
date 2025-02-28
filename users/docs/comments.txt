@@ -1,0 +1,16 @@
+28-02-2025
+
+1. Remove  Contact number from Users struct .
+   	// Just thinking not to support contact number as it will keep changing often
+   	// and it is bit complex with both country code and mobile number need to put together.
+   	// Also, what will we do with the contact number. At this juncture we are not adding
+   	// any functionality around it so lets get it removed
+
+2. In addusers.go, line 29; I see that you are adding email to a key called user_name in DB and when checking
+    for the documents in DB before insertion, you are looking for a key called email.
+    Should you be not looking for user_name??
+
+3. In addusers.go, line 64; you are returning the user which does not contain the id of the DB record.
+  Can you make correction to return user with DB object ID included?? This ID will be useful in case of other operations.
+
+
